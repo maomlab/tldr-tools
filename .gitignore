@@ -6,5 +6,5 @@ build
 .venv
 tldr_tools.egg-info
 tldr_docking.egg-info
-myenv
-dist
+myenv/
+dist/

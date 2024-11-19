@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def check_job_status(api_manager: APIManager, job_number: str):
     """Fetches and logs the status of a job."""
-    status = api_manager.fetch_job_status(job_number)
+    status = api_manager.status_by_job_no(job_number)
     logger.info(f"Job Number: {job_number}, Status: {status}")
 
 def main():

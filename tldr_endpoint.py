@@ -13,15 +13,6 @@ TLDR_BASE_URL = "https://tldr.docking.org"
 
 class TLDREndpoints:
     """Handles endpoint management for the TLDR API."""
-    
-    @staticmethod
-    def load_api_key():
-        """Loads the API key from the .env file."""
-        load_dotenv()
-        api_key = os.getenv("API_KEY") 
-        if not api_key:
-            raise ValueError("API_KEY not found in environment variables.")
-        return api_key
 
     @staticmethod
     def get_endpoint(endpoint: str) -> str:
@@ -59,74 +50,28 @@ def _generate_headers(cookie=None):
 class APIManager:
     """Manages API interactions with TLDR, including module submissions."""
 
-    def get_available_modules(self):
-        """Return a list of available modules for submission."""
-        return self.modules
-    
+
     def __init__(self):
-        self.api_key = TLDREndpoints.load_api_key() 
+        self.api_key = self.load_api_key() 
 
 
-        # TODO: Seperate this into a different file (config 1)
-        self.module_config = {
-            "dockopt": {
-                "required": ["actives.tgz", "decoys.tgz", "rec.pdb", "xtal-lig.pdb"],
-                "optional": ["memo"]
-            },
-            "decoys": {
-                "required": ["actives.ism", "decoy_generation"],
-                "optional": ["memo"]
-            }
-        }
+    @staticmethod
+    def load_api_key():
+        """Loads the API key from the .env file."""
+        load_dotenv()
+        api_key = os.getenv("API_KEY") 
+        if not api_key:
+            raise ValueError("API_KEY not found in environment variables.")
+        return api_key
 
-        self.modules = self.module_config.keys()
-
-    def submit_module(self, module: str, data: dict) -> str:
-        """Submits a module based on the module type and data."""
-        self.validate_input(module, data)  # Validate input before submission
-
-        logger.debug(f"Submitting {module} job with data:\n{data}")
-
-        if module == "dockopt":
-            return self._submit_dockopt(data)
-        elif module == "decoys":
-            return self._submit_decoys(data)
-        else:
-            raise ValueError(f"Unknown module: {module}")
-
-    def validate_input(self, module: str, data: dict):
-        """Validates the input data based on required and optional fields."""
-        config = self.module_config.get(module)
-
-        if not config:
-            raise ValueError(f"Module {module} is not configured.")
-
-        # Check required fields
-        for field in config["required"]:
-            if field not in data:
-                raise ValueError(f"Missing required field: {field}")
-
-
-    # TODO: Seperate this into a different file (config 2)
-    def _submit_dockopt(self, data: dict) -> str:
-        """Handles Dockopt submission."""
-        url = TLDREndpoints.get_endpoint(f"submit/dockopt?api_key={self.api_key}")
-        response = self.post_request(url, data)
-        return response.get('job_number')
-
-    def _submit_decoys(self, data: dict) -> str:
-        """Handles decoy gen (called DUDEZ on TLDR) submission."""
-        #	https://tldr.docking.org/submit/dudez
-        url = TLDREndpoints.get_endpoint(f"submit/dudez?api_key={self.api_key}") 
-        response = self.post_request(url, data)
-        return response.get('job_number')
-
-    def post_request(self, url: str, data: dict) -> dict:
+    def post_request(self, url: str, files: dict) -> dict:
         """Just a generic POST request handler."""
+        url_api = f"{url}?api_key={self.api_key}"
+
         headers = _generate_headers()  
-        logger.info(f"Submitting POST REQUEST CMD: requests.post({url}, files={data}, headers={headers})")
+        logger.info(f"Submitting POST REQUEST CMD: requests.post({url}, files={files}, headers={headers})")
         
-        response = requests.post(url, files=data, headers=headers)  
+        response = requests.post(url_api, files=files, headers=headers)  
         response.raise_for_status()  
         return response.json()  
 
@@ -140,7 +85,7 @@ class APIManager:
         Returns:
         - str: HTML content of the job page.
         """
-        job_url = f"{TLDR_BASE_URL}results/{job_number}?api_key={self.api_key}"
+        job_url = f"{TLDR_BASE_URL}/results/{job_number}?api_key={self.api_key}"
         logger.info(f"Fetching results from {job_url}")
 
         try:
@@ -171,10 +116,14 @@ class APIManager:
             return None
 
 
-    def fetch_job_status(self, job_number: str) -> str:
+    def status_by_job_no(self, job_number: str) -> str:
         """Returns the job status (Completed, Running, or Unknown) for a given job number."""
         html_content = self._job_page_html(job_number)
+        return self.element_by_html(html_content, "job_status")
 
+    def element_by_html(self, html_content, search_id):
+        #job_status or job_number
+        """Returns the job status (Completed, Running, or Unknown) for a given job number."""
         if not html_content:
             return "Unknown"
 
@@ -189,7 +138,7 @@ class APIManager:
 
     def download_decoys(self, job_number: str, output_path="decoys"):
         """Downloads all decoy files for a completed job."""
-        if self.fetch_job_status(job_number) != "Completed":
+        if self.status_by_job_no(job_number) != "Completed":
             raise ValueError(f"Job {job_number} is not completed.")
 
         job_url = TLDREndpoints.get_endpoint(f"results/{job_number}?api_key={self.api_key}")
