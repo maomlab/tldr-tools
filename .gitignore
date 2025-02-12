@@ -8,3 +8,6 @@ tldr_tools.egg-info
 tldr_docking.egg-info
 myenv/
 dist/
+axtest*
+test*
+chaff_tools/

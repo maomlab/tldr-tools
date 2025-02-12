@@ -1,7 +1,8 @@
 # tldr_api.py
 import argparse
 import logging
-from tldr_endpoint import *
+from tldr_tools.tldr_endpoint import *
+from tldr_tools.tldr_status import check_job_status
 from dotenv import load_dotenv
 
 # Set up logging
@@ -24,6 +25,18 @@ MODULE_CONFIG = {
             {"name": "--decoystgz", "help": "Path to decoys.tgz file.", "required": True},
             {"name": "--recpdb", "help": "Path to receptor PDB file.", "required": True},
             {"name": "--xtalpdb", "help": "Path to xtal ligand PDB file.", "required": True},
+            {"name": "--memo", "help": "Optional memo text.", "required": False},
+        ],
+    },
+    "build": {
+        "endpoint": "submit/build3d38",
+        "description": "Prepare a 3D library for docking in up to four formats used by popular docking programs using DOCK3.8 pipeline.",
+        "required_files": {
+            "input": "input.txt",
+        },
+        "optional": ["memo"],
+        "cli_args": [
+            {"name": "--input", "help": "File of SMILES ([SMILES] [COMPOUND_NAME] per line).", "required": True},
             {"name": "--memo", "help": "Optional memo text.", "required": False},
         ],
     },
@@ -61,7 +74,12 @@ def add_module_arguments(parser, module_name, module_config):
         parser.add_argument(arg["name"], help=arg["help"], required=arg["required"])
 
 
-def submit_module(api_manager: APIManager, module: str, **kwargs) -> str:
+from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+def submit_module(api_manager: APIManager, module: str, **kwargs) -> Optional[str]:
     """
     Submits a module with the provided arguments and returns the job number.
     :param api_manager: Instance of APIManager to handle submission.
@@ -69,11 +87,14 @@ def submit_module(api_manager: APIManager, module: str, **kwargs) -> str:
     :param kwargs: Module-specific arguments.
     :return: Submitted job number, or None on failure.
     """
-    def path_to_payload(path):
+    def path_to_payload(path: str):
         """Helper to open a file in binary mode for uploading."""
-        f = open(path, "rb")
-        return (None, f)
-    
+        try:
+            return open(path, "rb")
+        except FileNotFoundError:
+            logger.error(f"File not found: {path}")
+            return None
+
     # Load module-specific configuration
     if module not in MODULE_CONFIG:
         logger.error(f"Unknown module: {module}")
@@ -82,27 +103,30 @@ def submit_module(api_manager: APIManager, module: str, **kwargs) -> str:
     config = MODULE_CONFIG[module]
     files = {}
 
-
     try:
-        # Prepare files from module configuration
+        # Prepare required files
         for file_arg, payload_name in config.get("required_files", {}).items():
             if file_arg not in kwargs or not kwargs[file_arg]:
                 logger.error(f"Missing required file: {file_arg}")
                 return None
 
-            files[payload_name] = path_to_payload(kwargs[file_arg])
+            file_obj = path_to_payload(kwargs[file_arg])
+            if not file_obj:
+                return None  # Error logged by `path_to_payload`
 
-        # Add optional parameters (e.g., memo)
+            files[payload_name] = (None, file_obj)
+
+        # Add optional parameters
         for optional_arg in config.get("optional", []):
             if optional_arg in kwargs and kwargs[optional_arg]:
                 files[optional_arg] = (None, kwargs[optional_arg])
 
-        # Submit the module using APIManager
-        job_number = api_manager.post_request(
+        # Submit the module
+        response = api_manager.post_request(
             TLDREndpoints.get_endpoint(config["endpoint"]), files=files
         )
-        logger.info(f"Submitted Job Number: {job_number}")
-        return job_number
+
+        return response
 
     except Exception as e:
         logger.error(f"Error during submission: {e}")
@@ -111,10 +135,8 @@ def submit_module(api_manager: APIManager, module: str, **kwargs) -> str:
     finally:
         # Ensure all file handles are closed
         for key, value in files.items():
-            if isinstance(value, tuple) and hasattr(value[1], 'close'):
+            if isinstance(value, tuple) and hasattr(value[1], "close"):
                 value[1].close()
-
-
 
 
 def add_module_arguments(parser, module_name, module_config):
@@ -152,10 +174,10 @@ def main():
                 print(f"   {arg['name']} - {arg.get('help', 'No description provided.')}")
         return 
 
-    # Handle job status check
-    if args.job_number:
-        check_job_status(api_manager, args.job_number)
-        return
+    # # Handle job status check
+    # if args.job_number:
+    #     check_job_status(api_manager, args.job_number)
+    #     return
 
     # Add dynamic arguments for the selected module
     module_name = args.module
@@ -170,12 +192,21 @@ def main():
 
     # Submit the module
     response = submit_module(api_manager, module_name, **vars(module_args))  # Unpack the args dictionary
-    
-    job_number = api_manager.element_by_html(response, "job_number")
-    if job_number:
-        print(f"Job {job_number} submitted successfully!")
+
+    if response.text:
+        logger.info("Job submitted, but unsure if it went through (this is expected). Checking if identified job is running...")
+        submitted_job = api_manager.url_to_job_no(response.url)
+        job_status = check_job_status(api_manager, submitted_job)
+
+        print(job_status)
+        
+        if job_status in ['Submitted', 'Running']:
+            logger.info(f"Job {submitted_job} is {job_status} and submitted successfully!")
+        else:
+            logger.error(f"Job {submitted_job} status is unrecognized: {job_status}.")
     else:
-        print("Failed to check status of job.")
+        logger.error("Job failed to submit.")
+
 
 if __name__ == "__main__":
     main()

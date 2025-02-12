@@ -1,20 +1,29 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='tldr_tools',  
-    version='0.1.1',     
+    name='tldr-tools',  
+    version='0.2.4.1',     
     packages=find_packages(),  
     install_requires=[  
         'requests',
         'python-dotenv',
         'beautifulsoup4',
-        'python-dotenv',
+        'numpy',
+        'pyyaml',
+        'pandas'
     ],
+    tests_require=['pytest'],
+    # package_data={'tbd': ['data/tbd.json']}
     entry_points={  
         'console_scripts': [
-            'tldr-submit=tldr_submit:main', 
-            'tldr-status=tldr_status:main', 
-            'tldr-download = tldr_download:main',
+            'tldr-submit=tldr_tools.tldr_submit:main', 
+            'tldr-status=tldr_tools.tldr_status:main', 
+            'tldr-download = tldr_tools.tldr_download:main',
+            'chaff-batch = chaff_tools.batch:main', # Run contaminate and ready on batch (multiple receptors)
+            'chaff-extract = chaff_tools.extract:main', # Extract downloaded tldr into a single flat folder
+            'chaff-contaminate = chaff_tools.contaminate:main', # Create yaml from actives and chaff directory
+            'chaff-ready = chaff_tools.make_dockopt_ready:main', # Create .tar.gz for given input 
+            'chaff-splitdb2 = chaff_tools.split_db2:main', # split into train and test for input folder and fraction
         ],
     },
     author='Hai Pham',  
